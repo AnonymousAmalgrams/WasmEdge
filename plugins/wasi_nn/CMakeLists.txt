@@ -11,6 +11,14 @@ wasmedge_add_library(wasmedgePluginWasiNN
   tf.cpp
   torch.cpp
   tfl.cpp
+  common.cpp
+  common.h
+  ggllama.cpp
+  ggllama.h
+  ggml.c
+  ggml.h
+  llama.cpp
+  llama.h
 )
 
 target_compile_options(wasmedgePluginWasiNN

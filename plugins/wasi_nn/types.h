@@ -26,11 +26,12 @@ enum class Backend : uint8_t {
   ONNX = 1,
   Tensorflow = 2,
   PyTorch = 3,
-  TensorflowLite = 4
+  TensorflowLite = 4,
+  LlamaCpp = 5
 };
 
 #define FOR_EACH_BACKEND(F)                                                    \
-  F(OpenVINO) F(ONNX) F(Tensorflow) F(PyTorch) F(TensorflowLite)
+  F(OpenVINO) F(ONNX) F(Tensorflow) F(PyTorch) F(TensorflowLite) F(LlamaCpp)
 
 struct TensorData {
   Span<uint32_t> Dimension;

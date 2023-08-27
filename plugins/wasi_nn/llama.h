@@ -204,17 +204,8 @@ extern "C" {
         int32_t n_eval;
     };
 
-    // Set callback for all future logging events.
-    // If this is not called, or NULL is supplied, everything is output on stderr.
-    LLAMA_API void llama_log_set(llama_log_callback log_callback, void * user_data);
-
-    LLAMA_API int llama_max_devices();
-
     LLAMA_API struct llama_context_params llama_context_default_params();
     LLAMA_API struct llama_model_quantize_params llama_model_quantize_default_params();
-
-    LLAMA_API bool llama_mmap_supported();
-    LLAMA_API bool llama_mlock_supported();
 
     // TODO: not great API - very likely to change
     // Initialize the llama + ggml backend
@@ -244,14 +235,6 @@ extern "C" {
             struct llama_context_params   params),
             "please use llama_load_model_from_file combined with llama_new_context_with_model instead");
 
-    // Frees all allocated memory
-    LLAMA_API void llama_free(struct llama_context * ctx);
-
-    // Returns 0 on success
-    LLAMA_API int llama_model_quantize(
-            const char * fname_inp,
-            const char * fname_out,
-            const llama_model_quantize_params * params);
 
     // Apply a LoRA adapter to a loaded model
     // path_base_model is the path to a higher quality model to use as a base for
@@ -265,35 +248,6 @@ extern "C" {
                       const char * path_base_model,
                              int   n_threads),
             "please use llama_model_apply_lora_from_file instead");
-
-    LLAMA_API int llama_model_apply_lora_from_file(
-            const struct llama_model * model,
-                      const char * path_lora,
-                      const char * path_base_model,
-                             int   n_threads);
-
-    // Returns the number of tokens in the KV cache
-    LLAMA_API int llama_get_kv_cache_token_count(const struct llama_context * ctx);
-
-    // Sets the current rng seed.
-    LLAMA_API void llama_set_rng_seed(struct llama_context * ctx, uint32_t seed);
-
-    // Returns the maximum size in bytes of the state (rng, logits, embedding
-    // and kv_cache) - will often be smaller after compacting tokens
-    LLAMA_API size_t llama_get_state_size(const struct llama_context * ctx);
-
-    // Copies the state to the specified destination address.
-    // Destination needs to have allocated enough memory.
-    // Returns the number of bytes copied
-    LLAMA_API size_t llama_copy_state_data(struct llama_context * ctx, uint8_t * dst);
-
-    // Set the state reading from the specified address
-    // Returns the number of bytes read
-    LLAMA_API size_t llama_set_state_data(struct llama_context * ctx, uint8_t * src);
-
-    // Save/load session file
-    LLAMA_API bool llama_load_session_file(struct llama_context * ctx, const char * path_session, llama_token * tokens_out, size_t n_token_capacity, size_t * n_token_count_out);
-    LLAMA_API bool llama_save_session_file(struct llama_context * ctx, const char * path_session, const llama_token * tokens, size_t n_token_count);
 
     // Run the llama inference to obtain the logits and probabilities for the next token.
     // tokens + n_tokens is the provided batch of new tokens to process
@@ -313,12 +267,6 @@ extern "C" {
                              int   n_tokens,
                              int   n_past,
                              int   n_threads);
-
-    // Export a static computation graph for context of 511 and batch size of 1
-    // NOTE: since this functionality is mostly for debugging and demonstration purposes, we hardcode these
-    //       parameters here to keep things simple
-    // IMPORTANT: do not use for anything else other than debugging and testing!
-    LLAMA_API int llama_eval_export(struct llama_context * ctx, const char * fname);
 
     // Convert the provided text into tokens.
     // The tokens pointer must be large enough to hold the resulting tokens.
@@ -432,21 +380,6 @@ extern "C" {
     /// @details Apply constraints from grammar
     LLAMA_API void llama_sample_grammar(struct llama_context * ctx, llama_token_data_array * candidates, const struct llama_grammar * grammar);
 
-    /// @details Mirostat 1.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
-    /// @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
-    /// @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
-    /// @param eta The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
-    /// @param m The number of tokens considered in the estimation of `s_hat`. This is an arbitrary value that is used to calculate `s_hat`, which in turn helps to calculate the value of `k`. In the paper, they use `m = 100`, but you can experiment with different values to see how it affects the performance of the algorithm.
-    /// @param mu Maximum cross-entropy. This value is initialized to be twice the target cross-entropy (`2 * tau`) and is updated in the algorithm based on the error between the target and observed surprisal.
-    LLAMA_API llama_token llama_sample_token_mirostat(struct llama_context * ctx, llama_token_data_array * candidates, float tau, float eta, int m, float * mu);
-
-    /// @details Mirostat 2.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
-    /// @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
-    /// @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
-    /// @param eta The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
-    /// @param mu Maximum cross-entropy. This value is initialized to be twice the target cross-entropy (`2 * tau`) and is updated in the algorithm based on the error between the target and observed surprisal.
-    LLAMA_API llama_token llama_sample_token_mirostat_v2(struct llama_context * ctx, llama_token_data_array * candidates, float tau, float eta, float * mu);
-
     /// @details Selects the token with the highest probability.
     LLAMA_API llama_token llama_sample_token_greedy(struct llama_context * ctx, llama_token_data_array * candidates);
 
@@ -455,15 +388,6 @@ extern "C" {
 
     /// @details Accepts the sampled token into the grammar
     LLAMA_API void llama_grammar_accept_token(struct llama_context * ctx, struct llama_grammar * grammar, llama_token token);
-
-    // Performance information
-    LLAMA_API struct llama_timings llama_get_timings(struct llama_context * ctx);
-    LLAMA_API void llama_print_timings(struct llama_context * ctx);
-    LLAMA_API void llama_reset_timings(struct llama_context * ctx);
-
-    // Print system information
-    LLAMA_API const char * llama_print_system_info(void);
-
 #ifdef __cplusplus
 }
 #endif

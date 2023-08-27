@@ -17,12 +17,14 @@ namespace WasmEdge::Host::WASINN::LlamaCpp {
 #ifdef WASMEDGE_PLUGIN_WASI_NN_BACKEND_LLAMACPP
 struct Graph {
     llama_model *LlamaModel = nullptr;
-    llama_context *LlamaCtx = nullptr;
+    gpt_params *params = nullptr;
 };
 
 struct Context {
     Context(size_t GId, Graph &) noexcept : GraphId(GId) {}
+    llama_context *LlamaCtx = nullptr;
     gpt_params *params = nullptr;
+    char *out = nullptr;
 };
 #else
 struct Graph {};
@@ -41,10 +43,10 @@ Expect<WASINN::ErrNo> initExecCtx(WASINN::WasiNNEnvironment &Env,
                                   uint32_t &ContextId) noexcept;
 Expect<WASINN::ErrNo> setInput(WASINN::WasiNNEnvironment &Env,
                                uint32_t ContextId, uint32_t Index,
-                               const TensorData &Tensor) noexcept;
+                               char* Prompt) noexcept;
 Expect<WASINN::ErrNo> getOutput(WASINN::WasiNNEnvironment &Env,
                                 uint32_t ContextId, uint32_t Index,
-                                Span<uint8_t> OutBuffer,
+                                char* ResponseBuffer,
                                 uint32_t &BytesWritten) noexcept;
 Expect<WASINN::ErrNo> compute(WASINN::WasiNNEnvironment &Env,
                               uint32_t ContextId) noexcept;

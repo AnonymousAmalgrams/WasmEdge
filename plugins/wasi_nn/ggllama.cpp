@@ -51,14 +51,26 @@ Expect<ErrNo> load(WasiNNEnvironment &Env, Span<const Span<uint8_t>> Builders,
   auto &GraphRef = Env.NNGraph.back().get<Graph>();
 
   gpt_params params;
+  llama_model *model;
 
   //can add more parsing into this method to change inference params
   if (!gpt_params_parse(params)) {
     spdlog::error("[WASI-NN] Failed to load inference parameters.");
     return ErrNo::InvalidArgument;  
   }
+  GraphRef.params = &params;
 
-  std:tie(GraphRef.LlamaModel, GraphRef.LlamaCtx) = llama_init_from_gpt_params(params);
+  std::mt19937 rng(params.seed);
+
+  llama_backend_init(params.numa);
+
+  model = llama_load_model_from_file(params);
+  if(model == NULL)
+  {
+    spdlog::error("[WASI-NN] Failed to load model.");
+    return ErrNo::InvalidArgument;  
+  }
+  GraphRef.LlamaModel = model;
 
   //Store the loaded graph.
   GraphId = Env.NNGraph.size() - 1;
@@ -70,23 +82,18 @@ Expect<ErrNo> initExecCtx(WasiNNEnvironment &Env, uint32_t GraphId,
   //Add a new context
   Env.NNContext.emplace_back(GraphId, Env.NNGraph[GraphId]);
   auto &CtxRef = Env.NNGraph.back().get<Context>();
+  auto &GraphRef = Env.NNGraph[CxtRef.GraphId].get<Graph>();
 
-  gpt_params *params;
-  CtxRef.params = params;
+  CtxRef.params = GraphRef.params;
 
-  std::mt19937 rng(params.seed);
-  if (params.random_prompt) {
-    params.prompt = gpt_random_prompt(rng);
-  }
-
-  llama_backend_init(params.numa);
+  CtxRef.LlamaCtx = llama_new_context_with_model(GraphRef.LlamaModel, CtxRef.params);
 
   ContextId = Env.NNContext.size() - 1;
   return ErrNo::Success;
  }
 
 Expect<ErrNo> setInput(WasiNNEnvironment &Env, uint32_t ContextId,
-                       uint32_t Index, const TensorData &Tensor) noexcept {
+                       uint32_t Index, char* Prompt) noexcept {
   auto &CxtRef = Env.NNContext[ContextId].get<Context>();
 
   // tokenize the prompt
@@ -94,6 +101,13 @@ Expect<ErrNo> setInput(WasiNNEnvironment &Env, uint32_t ContextId,
 
   gpt_params *params;
   CtxRef.params = params;
+
+  llama_context *ctx;
+
+  llama_context * ctx_guidance = NULL;
+  g_ctx = &ctx;
+
+  params.prompt = Prompt;
 
   params.prompt.insert(0, 1, ' ');
 
@@ -132,17 +146,24 @@ Expect<ErrNo> setInput(WasiNNEnvironment &Env, uint32_t ContextId,
     // TODO: replace with ring-buffer
     std::vector<llama_token> last_n_tokens(n_ctx);
     std::fill(last_n_tokens.begin(), last_n_tokens.end(), 0);
+
+    return WASINN::ErrNo::Success; 
 }
 
 Expect<ErrNo> getOutput(WasiNNEnvironment &Env, uint32_t ContextId,
-                        uint32_t Index, Span<uint8_t> OutBuffer,
+                        uint32_t Index, char* ResponseBuffer,
                         uint32_t &BytesWritten) noexcept {
-                            //tokenize output and ret
+    auto &CxtRef = Env.NNContext[ContextId].get<Context>();
+
+    ResponseBuffer = CtxRef.out;
+    BytesWritten = sizeof(ResponseBuffer);
+
+    return ErrNo::Success;
 }
 
 Expect<ErrNo> compute(WasiNNEnvironment &Env, uint32_t ContextId) noexcept {
   auto &CxtRef = Env.NNContext[ContextId].get<Context>();
-  //main computation steps
+  //main computation steps, modified from llama.cpp main example
 
     bool is_antiprompt        = false;
     bool input_echo           = true;
@@ -161,7 +182,6 @@ Expect<ErrNo> compute(WasiNNEnvironment &Env, uint32_t ContextId) noexcept {
     {
         const std::vector<llama_token> tmp = { llama_token_bos(), };
         llama_eval(ctx, tmp.data(), tmp.size(), 0, params.n_threads);
-        llama_reset_timings(ctx);
     }
 
     while ((n_remain != 0 && !is_antiprompt) || params.interactive) {
@@ -173,9 +193,7 @@ Expect<ErrNo> compute(WasiNNEnvironment &Env, uint32_t ContextId) noexcept {
             // Ensure the input doesn't exceed the context size by truncating embd if necessary.
             if ((int)embd.size() > max_embd_size) {
                 auto skipped_tokens = embd.size() - max_embd_size;
-                console_set_color(con_st, CONSOLE_COLOR_ERROR);
                 printf("<<input too long: skipped %zu token%s>>", skipped_tokens, skipped_tokens != 1 ? "s" : "");
-                console_set_color(con_st, CONSOLE_COLOR_DEFAULT);
                 fflush(stdout);
                 embd.resize(max_embd_size);
             }
@@ -396,11 +414,12 @@ Expect<ErrNo> compute(WasiNNEnvironment &Env, uint32_t ContextId) noexcept {
         }
 
         // display text
+        char* txt;
         if (input_echo) {
             for (auto id : embd) {
-                printf("%s", llama_token_to_str(ctx, id));
+                txt = llama_token_to_str(ctx, id);
+                strncat(CtxRef.out, txt, sizeof(txt));
             }
-            fflush(stdout);
         }
 
         // if not currently processing queued inputs;
@@ -423,9 +442,6 @@ Expect<ErrNo> compute(WasiNNEnvironment &Env, uint32_t ContextId) noexcept {
                     another_line = console_readline(con_st, line);
                     buffer += line;
                 } while (another_line);
-
-                // done taking input, reset color
-                console_set_color(con_st, CONSOLE_COLOR_DEFAULT);
 
                 // Add tokens to embd only if the input buffer is non-empty
                 // Entering a empty line lets the user pass control back
@@ -471,6 +487,8 @@ Expect<ErrNo> compute(WasiNNEnvironment &Env, uint32_t ContextId) noexcept {
             }
         }
     }
+    
+  return WASINN::ErrNo::Success;
 }
 
 #else
